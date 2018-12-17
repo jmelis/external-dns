@@ -2,7 +2,8 @@
 #  https://github.com/kubernetes/kubernetes/blob/master/docs/devel/owners.md
 
 approvers:
-  - hjacobs
-  - raffo
-  - linki
-  - njuettner
+- abutcher
+- csrwng
+- dgoodwin
+- joelddiaz
+- twiest
