@@ -28,6 +28,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/kubernetes-incubator/external-dns/controller"
+	"github.com/kubernetes-incubator/external-dns/endpoint"
 	"github.com/kubernetes-incubator/external-dns/pkg/apis/externaldns"
 	"github.com/kubernetes-incubator/external-dns/pkg/apis/externaldns/validation"
 	"github.com/kubernetes-incubator/external-dns/plan"
@@ -102,6 +103,8 @@ func main() {
 	zoneTypeFilter := provider.NewZoneTypeFilter(cfg.AWSZoneType)
 	zoneTagFilter := provider.NewZoneTagFilter(cfg.AWSZoneTagFilter)
 
+	recordTypes := plan.DefaultRecordTypes
+
 	var p provider.Provider
 	switch cfg.Provider {
 	case "alibabacloud":
@@ -121,6 +124,8 @@ func main() {
 				DryRun:               cfg.DryRun,
 			},
 		)
+		// Only the AWS provider supports NS record types for now
+		recordTypes = append(plan.DefaultRecordTypes, endpoint.RecordTypeNS)
 	case "aws-sd":
 		// Check that only compatible Registry is used with AWS-SD
 		if cfg.Registry != "noop" && cfg.Registry != "aws-sd" {
@@ -230,10 +235,11 @@ func main() {
 	}
 
 	ctrl := controller.Controller{
-		Source:   endpointsSource,
-		Registry: r,
-		Policy:   policy,
-		Interval: cfg.Interval,
+		Source:      endpointsSource,
+		Registry:    r,
+		Policy:      policy,
+		Interval:    cfg.Interval,
+		RecordTypes: recordTypes,
 	}
 
 	if cfg.Once {
