@@ -937,21 +937,25 @@ func TestAWSSuitableZones(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		hostname string
-		expected []*route53.HostedZone
+		hostname   string
+		recordType string
+		expected   []*route53.HostedZone
 	}{
 		// bar.example.org is NOT suitable
-		{"foobar.example.org.", []*route53.HostedZone{zones["example-org-private"], zones["example-org"]}},
+		{"foobar.example.org.", "A", []*route53.HostedZone{zones["example-org-private"], zones["example-org"]}},
 
 		// all matching private zones are suitable
 		// https://github.com/kubernetes-incubator/external-dns/pull/356
-		{"bar.example.org.", []*route53.HostedZone{zones["example-org-private"], zones["bar-example-org-private"], zones["bar-example-org"]}},
+		{"bar.example.org.", "A", []*route53.HostedZone{zones["example-org-private"], zones["bar-example-org-private"], zones["bar-example-org"]}},
 
-		{"foo.bar.example.org.", []*route53.HostedZone{zones["example-org-private"], zones["bar-example-org-private"], zones["bar-example-org"]}},
-		{"foo.example.org.", []*route53.HostedZone{zones["example-org-private"], zones["example-org"]}},
-		{"foo.kubernetes.io.", nil},
+		{"foo.bar.example.org.", "A", []*route53.HostedZone{zones["example-org-private"], zones["bar-example-org-private"], zones["bar-example-org"]}},
+		{"foo.example.org.", "A", []*route53.HostedZone{zones["example-org-private"], zones["example-org"]}},
+		{"foo.kubernetes.io.", "A", nil},
+
+		// Only parent domain should be suitable for a NS record
+		{"bar.example.org.", "NS", []*route53.HostedZone{zones["example-org-private"], zones["example-org"]}},
 	} {
-		suitableZones := suitableZones(tc.hostname, zones)
+		suitableZones := suitableZones(tc.hostname, tc.recordType, zones)
 		sort.Slice(suitableZones, func(i, j int) bool {
 			return *suitableZones[i].Id < *suitableZones[j].Id
 		})

@@ -223,6 +223,10 @@ func wildcardUnescape(s string) string {
 	return s
 }
 
+func awsSupportedRecordType(recordType string) bool {
+	return supportedRecordType(recordType) || isNSRecord(recordType)
+}
+
 // Records returns the list of records in a given hosted zone.
 func (p *AWSProvider) Records() (endpoints []*endpoint.Endpoint, _ error) {
 	zones, err := p.Zones()
@@ -230,12 +234,19 @@ func (p *AWSProvider) Records() (endpoints []*endpoint.Endpoint, _ error) {
 		return nil, err
 	}
 
+	var zone *route53.HostedZone
+
 	f := func(resp *route53.ListResourceRecordSetsOutput, lastPage bool) (shouldContinue bool) {
 		for _, r := range resp.ResourceRecordSets {
 			// TODO(linki, ownership): Remove once ownership system is in place.
 			// See: https://github.com/kubernetes-incubator/external-dns/pull/122/files/74e2c3d3e237411e619aefc5aab694742001cdec#r109863370
 
-			if !supportedRecordType(aws.StringValue(r.Type)) {
+			if !awsSupportedRecordType(aws.StringValue(r.Type)) {
+				continue
+			}
+
+			// For NS record types, ignore records for their own zone
+			if isNSRecord(aws.StringValue(r.Type)) && aws.StringValue(r.Name) == aws.StringValue(zone.Name) {
 				continue
 			}
 
@@ -268,6 +279,8 @@ func (p *AWSProvider) Records() (endpoints []*endpoint.Endpoint, _ error) {
 		params := &route53.ListResourceRecordSetsInput{
 			HostedZoneId: z.Id,
 		}
+
+		zone = z
 
 		if err := p.client.ListResourceRecordSetsPages(params, f); err != nil {
 			return nil, err
@@ -529,7 +542,7 @@ func changesByZone(zones map[string]*route53.HostedZone, changeSet []*route53.Ch
 	for _, c := range changeSet {
 		hostname := ensureTrailingDot(aws.StringValue(c.ResourceRecordSet.Name))
 
-		zones := suitableZones(hostname, zones)
+		zones := suitableZones(hostname, aws.StringValue(c.ResourceRecordSet.Type), zones)
 		if len(zones) == 0 {
 			log.Debugf("Skipping record %s because no hosted zone matching record DNS Name was detected ", c.String())
 			continue
@@ -550,14 +563,23 @@ func changesByZone(zones map[string]*route53.HostedZone, changeSet []*route53.Ch
 	return changes
 }
 
+// isSuitableZone determines if a zone is suitable for a given hostname.
+// In the case of NS records, only parent zones should be considered.
+func isSuitableZone(hostname, zoneName, recordType string) bool {
+	if isNSRecord(recordType) {
+		return strings.HasSuffix(hostname, "."+zoneName)
+	}
+	return zoneName == hostname || strings.HasSuffix(hostname, "."+zoneName)
+}
+
 // suitableZones returns all suitable private zones and the most suitable public zone
 //   for a given hostname and a set of zones.
-func suitableZones(hostname string, zones map[string]*route53.HostedZone) []*route53.HostedZone {
+func suitableZones(hostname, recordType string, zones map[string]*route53.HostedZone) []*route53.HostedZone {
 	var matchingZones []*route53.HostedZone
 	var publicZone *route53.HostedZone
 
 	for _, z := range zones {
-		if aws.StringValue(z.Name) == hostname || strings.HasSuffix(hostname, "."+aws.StringValue(z.Name)) {
+		if isSuitableZone(hostname, aws.StringValue(z.Name), recordType) {
 			if z.Config == nil || !aws.BoolValue(z.Config.PrivateZone) {
 				// Only select the best matching public zone
 				if publicZone == nil || len(aws.StringValue(z.Name)) > len(aws.StringValue(publicZone.Name)) {
@@ -618,4 +640,8 @@ func cleanZoneID(ID string) string {
 		ID = strings.TrimPrefix(ID, "/hostedzone/")
 	}
 	return ID
+}
+
+func isNSRecord(recordType string) bool {
+	return recordType == endpoint.RecordTypeNS
 }

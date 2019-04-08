@@ -78,6 +78,8 @@ type Controller struct {
 	Policy plan.Policy
 	// The interval between individual synchronizations
 	Interval time.Duration
+	// RecordTypes is a list of supported record types
+	RecordTypes []string
 }
 
 // RunOnce runs a single iteration of a reconciliation loop.
@@ -97,9 +99,10 @@ func (c *Controller) RunOnce() error {
 	sourceEndpointsTotal.Set(float64(len(endpoints)))
 
 	plan := &plan.Plan{
-		Policies: []plan.Policy{c.Policy},
-		Current:  records,
-		Desired:  endpoints,
+		Policies:    []plan.Policy{c.Policy},
+		Current:     records,
+		Desired:     endpoints,
+		RecordTypes: c.RecordTypes,
 	}
 
 	plan = plan.Calculate()

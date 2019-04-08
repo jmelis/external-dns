@@ -23,6 +23,14 @@ import (
 	"github.com/kubernetes-incubator/external-dns/endpoint"
 )
 
+var (
+	// DefaultRecordTypes is the list of record types that are supported by default
+	DefaultRecordTypes = []string{
+		endpoint.RecordTypeA,
+		endpoint.RecordTypeCNAME,
+	}
+)
+
 // Plan can convert a list of desired and current records to a series of create,
 // update and delete actions.
 type Plan struct {
@@ -35,6 +43,8 @@ type Plan struct {
 	// List of changes necessary to move towards desired state
 	// Populated after calling Calculate()
 	Changes *Changes
+	// RecordTypes is a list of allowed record types
+	RecordTypes []string
 }
 
 // Changes holds lists of actions to be executed by dns providers
@@ -140,10 +150,10 @@ func (t planTable) getDeletes() (deleteList []*endpoint.Endpoint) {
 func (p *Plan) Calculate() *Plan {
 	t := newPlanTable()
 
-	for _, current := range filterRecordsForPlan(p.Current) {
+	for _, current := range filterRecordsForPlan(p.Current, p.RecordTypes) {
 		t.addCurrent(current)
 	}
-	for _, desired := range filterRecordsForPlan(p.Desired) {
+	for _, desired := range filterRecordsForPlan(p.Desired, p.RecordTypes) {
 		t.addCandidate(desired)
 	}
 
@@ -198,6 +208,7 @@ func shouldUpdateProviderSpecific(desired, current *endpoint.Endpoint) bool {
 
 		for _, d := range desired.ProviderSpecific {
 			if d.Name == c.Name && d.Value != c.Value {
+				fmt.Printf("Provider-specific fields have changed\n")
 				return true
 			}
 		}
@@ -213,17 +224,19 @@ func shouldUpdateProviderSpecific(desired, current *endpoint.Endpoint) bool {
 // Per RFC 1034, CNAME records conflict with all other records - it is the
 // only record with this property. The behavior of the planner may need to be
 // made more sophisticated to codify this.
-func filterRecordsForPlan(records []*endpoint.Endpoint) []*endpoint.Endpoint {
+func filterRecordsForPlan(records []*endpoint.Endpoint, recordTypes []string) []*endpoint.Endpoint {
 	filtered := []*endpoint.Endpoint{}
+	if len(recordTypes) == 0 {
+		recordTypes = DefaultRecordTypes
+	}
 
 	for _, record := range records {
 		// Explicitly specify which records we want to use for planning.
-		// TODO: Add AAAA records as well when they are supported.
-		switch record.RecordType {
-		case endpoint.RecordTypeA, endpoint.RecordTypeCNAME:
-			filtered = append(filtered, record)
-		default:
-			continue
+		for _, validType := range recordTypes {
+			if record.RecordType == validType {
+				filtered = append(filtered, record)
+				break
+			}
 		}
 	}
 
